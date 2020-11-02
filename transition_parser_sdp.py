@@ -2,17 +2,17 @@ import logging
 from typing import Dict, Optional, Any, List
 
 import torch
+from torch.nn.modules import Dropout
+
 from allennlp.data import Vocabulary
 from allennlp.models import SimpleTagger
 from allennlp.models.model import Model
 from allennlp.modules import Seq2SeqEncoder, TextFieldEmbedder, Embedding
 from allennlp.nn import InitializerApplicator, RegularizerApplicator
 from allennlp.training.metrics import Metric
-from torch.nn.modules import Dropout
 
 from stack_rnn import StackRnn
 from simple_tagger import SimpleTagger
-# import sdp_trans_outputs_into_mrp
 
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 
@@ -25,7 +25,7 @@ class TransitionParser(Model):
                  hidden_dim: int,
                  action_dim: int,
                  num_layers: int,
-                 mces_metric: Metric = None,
+                 metric: Metric = None,
                  recurrent_dropout_probability: float = 0.0,
                  layer_dropout_probability: float = 0.0,
                  same_dropout_mask_per_instance: bool = True,
@@ -50,7 +50,7 @@ class TransitionParser(Model):
         self.num_actions = vocab.get_vocab_size('actions')
         self.text_field_embedder = text_field_embedder
         self.pos_tag_embedding = pos_tag_embedding
-        self._mces_metric = mces_metric
+        self.metric = metric
 
         self.action_embedding = action_embedding
 
@@ -104,24 +104,20 @@ class TransitionParser(Model):
                                      layer_dropout_probability=layer_dropout_probability,
                                      same_dropout_mask_per_instance=same_dropout_mask_per_instance)
 
-        '''
-        self.frame_tagger = SimpleTagger(vocab=vocab,
-                                         text_field_embedder=text_field_embedder,
-                                         encoder=self.frame_tagger_encoder,
-                                         label_namespace='frame')
-        ''''''
+        # self.frame_tagger = SimpleTagger(vocab=vocab,
+        #                                  text_field_embedder=text_field_embedder,
+        #                                  encoder=self.frame_tagger_encoder,
+        #                                  label_namespace='frame')
 
-        self.pos_tagger = SimpleTagger(vocab=vocab,
-                                       text_field_embedder=text_field_embedder,
-                                       encoder=self.pos_tagger_encoder,
-                                       label_namespace='pos_tag')
+        # self.pos_tagger = SimpleTagger(vocab=vocab,
+        #                                text_field_embedder=text_field_embedder,
+        #                                encoder=self.pos_tagger_encoder,
+        #                                label_namespace='pos_tag')
 
-        ''''''
-        self.node_label_tagger = SimpleTagger(vocab=vocab,
-                                              text_field_embedder=text_field_embedder,
-                                              encoder=self.node_label_tagger_encoder,
-                                              label_namespace='node_label')
-        '''
+        # self.node_label_tagger = SimpleTagger(vocab=vocab,
+        #                                       text_field_embedder=text_field_embedder,
+        #                                       encoder=self.node_label_tagger_encoder,
+        #                                       label_namespace='node_label')
 
         initializer(self)
 
@@ -140,8 +136,8 @@ class TransitionParser(Model):
         # We will keep track of all the losses we accumulate during parsing.
         # If some decision is unambiguous because it's the only thing valid given
         # the parser state, we will not model it. We only model what is ambiguous.
-        losses = [[] for _ in range(batch_size)]
-        edge_list = [[] for _ in range(batch_size)]
+        losses = [[] for _ in range(batch_size)]        # [[], [], [], [], []]
+        edge_list = [[] for _ in range(batch_size)]     # [[], [], [], [], []]
 
         # push the tokens onto the buffer (tokens is in reverse order)
         for token_idx in range(max(sent_len)):
@@ -290,40 +286,41 @@ class TransitionParser(Model):
                 arc_tags: torch.LongTensor = None,
                 ) -> Dict[str, torch.LongTensor]:
 
-        batch_size = len(metadata)
-        sent_len = [len(d['tokens']) for d in metadata]
-        meta_info = [d['meta_info'] for d in metadata]
+        batch_size = len(metadata)                          # 5
+        tokens['tokens']['tokens'] = tokens['tokens']['tokens'][:, 1:]  # torch.Size([5, 15])
+        sent_len = [len(d['tokens'])-1 for d in metadata]     # [6, 7, 8, 15, 11]
+        meta_info = [d['meta_info'] for d in metadata]      # revert to raw text
 
         oracle_actions = None
         if gold_actions is not None:
             oracle_actions = [d['gold_actions'] for d in metadata]
             oracle_actions = [[self.vocab.get_token_index(s, namespace='actions') for s in l] for l in oracle_actions]
 
-        embedded_text_input = self.text_field_embedder(tokens)
-        embedded_text_input = self._input_dropout(embedded_text_input)
+        embedded_text_input = self.text_field_embedder(tokens)          # torch.Size([5, 16, 100])
+        embedded_text_input = self._input_dropout(embedded_text_input)  
 
         if self.training:
+            # 返回了一堆loss
             ret_train = self._greedy_decode(batch_size=batch_size,
                                             sent_len=sent_len,
                                             embedded_text_input=embedded_text_input,
                                             oracle_actions=oracle_actions)
 
-            '''
-            frame_tagger_train_outputs = self.frame_tagger(tokens=tokens, tags=frame)
-            frame_tagger_train_outputs = self.frame_tagger.decode(frame_tagger_train_outputs)
+            # frame_tagger_train_outputs = self.frame_tagger(tokens=tokens, tags=frame)
+            # frame_tagger_train_outputs = self.frame_tagger.decode(frame_tagger_train_outputs)
 
-            pos_tagger_train_outputs = self.pos_tagger(tokens=tokens, tags=pos_tag)
-            pos_tagger_train_outputs = self.pos_tagger.decode(pos_tagger_train_outputs)
+            # pos_tagger_train_outputs = self.pos_tagger(tokens=tokens, tags=pos_tag)
+            # pos_tagger_train_outputs = self.pos_tagger.decode(pos_tagger_train_outputs)
 
-            node_label_tagger_train_outputs = self.node_label_tagger(tokens=tokens, tags=node_label)
-            node_label_tagger_train_outputs = self.node_label_tagger.decode(node_label_tagger_train_outputs)
-            '''
+            # node_label_tagger_train_outputs = self.node_label_tagger(tokens=tokens, tags=node_label)
+            # node_label_tagger_train_outputs = self.node_label_tagger.decode(node_label_tagger_train_outputs)
 
-            _loss = ret_train['loss'] + \
-                    frame_tagger_train_outputs['loss'] + \
-                    pos_tagger_train_outputs['loss'] + \
-                    node_label_tagger_train_outputs['loss']
-            output_dict = {'loss': _loss}
+            _loss = ret_train['loss']       # 3.4848
+            # _loss = ret_train['loss'] + \
+                    # frame_tagger_train_outputs['loss'] + \
+                    # pos_tagger_train_outputs['loss'] + \
+                    # node_label_tagger_train_outputs['loss']
+            output_dict = {'loss': _loss}   # 训练时候只需要返回loss即可，别的也不需要
             return output_dict
 
         training_mode = self.training
@@ -332,72 +329,78 @@ class TransitionParser(Model):
             ret_eval = self._greedy_decode(batch_size=batch_size,
                                            sent_len=sent_len,
                                            embedded_text_input=embedded_text_input)
-            if frame is not None:
-                frame_tagger_eval_outputs = self.frame_tagger(tokens, tags=frame)
-            else:
-                frame_tagger_eval_outputs = self.frame_tagger(tokens)
-            frame_tagger_eval_outputs = self.frame_tagger.decode(frame_tagger_eval_outputs)
+            # if frame is not None:
+            #     frame_tagger_eval_outputs = self.frame_tagger(tokens, tags=frame)
+            # else:
+            #     frame_tagger_eval_outputs = self.frame_tagger(tokens)
+            # frame_tagger_eval_outputs = self.frame_tagger.decode(frame_tagger_eval_outputs)
 
-            if pos_tag is not None:
-                pos_tagger_eval_outputs = self.pos_tagger(tokens, tags=pos_tag)
-            else:
-                pos_tagger_eval_outputs = self.pos_tagger(tokens)
-            pos_tagger_eval_outputs = self.pos_tagger.decode(pos_tagger_eval_outputs)
+            # if pos_tag is not None:
+            #     pos_tagger_eval_outputs = self.pos_tagger(tokens, tags=pos_tag)
+            # else:
+            #     pos_tagger_eval_outputs = self.pos_tagger(tokens)
+            # pos_tagger_eval_outputs = self.pos_tagger.decode(pos_tagger_eval_outputs)
 
-            if node_label is not None:
-                node_label_tagger_eval_outputs = self.node_label_tagger(tokens, tags=node_label)
-            else:
-                node_label_tagger_eval_outputs = self.node_label_tagger(tokens)
-            node_label_tagger_eval_outputs = self.node_label_tagger.decode(node_label_tagger_eval_outputs)
+            # if node_label is not None:
+            #     node_label_tagger_eval_outputs = self.node_label_tagger(tokens, tags=node_label)
+            # else:
+            #     node_label_tagger_eval_outputs = self.node_label_tagger(tokens)
+            # node_label_tagger_eval_outputs = self.node_label_tagger.decode(node_label_tagger_eval_outputs)
 
         self.train(training_mode)
 
-        edge_list = ret_eval['edge_list']
+        # 在训练初期，弧表肯定是空的
+        # edge_list是len为batchsize的列表，每个列表放着它对应的元组
+        # 每个元组第一项和第二项分别对应头结点和尾结点，第三项是标签
+        edge_list = ret_eval['edge_list'] 
 
-        if 'loss' in frame_tagger_eval_outputs and 'loss' in pos_tagger_eval_outputs:
-            _loss = ret_eval['loss'] + \
-                    frame_tagger_eval_outputs['loss'] + \
-                    pos_tagger_eval_outputs['loss'] + \
-                    node_label_tagger_eval_outputs['loss']
-        else:
-            _loss = ret_eval['loss']
+        _loss = ret_eval['loss']
+        # if 'loss' in frame_tagger_eval_outputs and 'loss' in pos_tagger_eval_outputs:
+        #     _loss = ret_eval['loss'] + \
+        #             frame_tagger_eval_outputs['loss'] + \
+        #             pos_tagger_eval_outputs['loss'] + \
+        #             node_label_tagger_eval_outputs['loss']
+        # else:
+        #     _loss = ret_eval['loss']
 
         # prediction-mode
         output_dict = {
             'tokens': [d['tokens'] for d in metadata],
             'edge_list': edge_list,
             'meta_info': meta_info,
-            'tokens_range': [d['tokens_range'] for d in metadata],
-            'frame': frame_tagger_eval_outputs["tags"],
-            'pos_tag': pos_tagger_eval_outputs["tags"],
-            'node_label': node_label_tagger_eval_outputs["tags"],
+            # 'tokens_range': [d['tokens_range'] for d in metadata],
+            # 'frame': frame_tagger_eval_outputs["tags"],
+            # 'pos_tag': pos_tagger_eval_outputs["tags"],
+            # 'node_label': node_label_tagger_eval_outputs["tags"],
             'loss': _loss
         }
 
         # prediction-mode
         # compute the mrp accuracy when gold actions exists
-        if gold_actions is not None:
-            gold_mrps = [x["gold_mrps"] for x in metadata]
-            predicted_mrps = []
+        # if gold_actions is not None:
+        #     gold_mrps = [x["gold_mrps"] for x in metadata]
+        #     predicted_mrps = []
 
-            for sent_idx in range(batch_size):
-                if len(output_dict['edge_list'][sent_idx]) <= 5 * len(output_dict['tokens'][sent_idx]):
-                    predicted_mrps.append(sdp_trans_outputs_into_mrp({
-                        'tokens': output_dict['tokens'][sent_idx],
-                        'edge_list': output_dict['edge_list'][sent_idx],
-                        'meta_info': output_dict['meta_info'][sent_idx],
-                        'frame': output_dict['frame'][sent_idx],
-                        'pos_tag': output_dict['pos_tag'][sent_idx],
-                        "node_label": output_dict['node_label'][sent_idx],
-                        'tokens_range': output_dict['tokens_range'][sent_idx],
-                    }))
+        #     for sent_idx in range(batch_size):
+        #         if len(output_dict['edge_list'][sent_idx]) <= 5 * len(output_dict['tokens'][sent_idx]):
+        #             predicted_mrps.append(sdp_trans_outputs_into_mrp({
+        #                 'tokens': output_dict['tokens'][sent_idx],
+        #                 'edge_list': output_dict['edge_list'][sent_idx],
+        #                 'meta_info': output_dict['meta_info'][sent_idx],
+        #                 'frame': output_dict['frame'][sent_idx],
+        #                 'pos_tag': output_dict['pos_tag'][sent_idx],
+        #                 "node_label": output_dict['node_label'][sent_idx],
+        #                 'tokens_range': output_dict['tokens_range'][sent_idx],
+        #             }))
 
-            self._mces_metric(predicted_mrps, gold_mrps)
+            # self._mces_metric(predicted_mrps, gold_mrps)
 
+        # self.metric(, ) # TODO
         return output_dict
 
     def get_metrics(self, reset: bool = False) -> Dict[str, float]:
         all_metrics: Dict[str, float] = {}
-        if self._mces_metric is not None and not self.training:
-            all_metrics.update(self._mces_metric.get_metric(reset=reset))
+        if self.metric is not None and not self.training:
+            # all_metrics.update(self.metric.get_metric(reset=reset))
+            pass
         return all_metrics
