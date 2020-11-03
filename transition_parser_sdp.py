@@ -278,11 +278,11 @@ class TransitionParser(Model):
                 tokens: Dict[str, torch.LongTensor],
                 metadata: List[Dict[str, Any]],
                 gold_actions: Dict[str, torch.LongTensor] = None,
-                lemmas: Dict[str, torch.LongTensor] = None,
-                mrp_pos_tags: torch.LongTensor = None,
-                frame: torch.LongTensor = None,
+                # lemmas: Dict[str, torch.LongTensor] = None,
+                # mrp_pos_tags: torch.LongTensor = None,
+                # frame: torch.LongTensor = None,
                 pos_tag: torch.LongTensor = None,
-                node_label: torch.LongTensor = None,
+                # node_label: torch.LongTensor = None,
                 arc_tags: torch.LongTensor = None,
                 ) -> Dict[str, torch.LongTensor]:
 
@@ -296,7 +296,7 @@ class TransitionParser(Model):
             oracle_actions = [d['gold_actions'] for d in metadata]
             oracle_actions = [[self.vocab.get_token_index(s, namespace='actions') for s in l] for l in oracle_actions]
 
-        embedded_text_input = self.text_field_embedder(tokens)          # torch.Size([5, 16, 100])
+        embedded_text_input = self.text_field_embedder(tokens)          # torch.Size([5, 15, 100])
         embedded_text_input = self._input_dropout(embedded_text_input)  
 
         if self.training:
@@ -395,12 +395,21 @@ class TransitionParser(Model):
 
             # self._mces_metric(predicted_mrps, gold_mrps)
 
-        # self.metric(, ) # TODO
+        self.metric(edge_list, metadata)
         return output_dict
 
     def get_metrics(self, reset: bool = False) -> Dict[str, float]:
         all_metrics: Dict[str, float] = {}
         if self.metric is not None and not self.training:
-            # all_metrics.update(self.metric.get_metric(reset=reset))
-            pass
+            all_metrics.update({'LF': self.metric.LF, 
+                                'UF': self.metric.UF, 
+                                'n_total': self.metric.n_total,
+                                'n_predict': self.metric.n_predict,
+                                'correct_arcs': self.metric.correct_arcs,
+                                'correct_rels': self.metric.correct_rels,
+                                'LF_Precision': self.metric.LF_Precision, 
+                                'UF_Precision': self.metric.UF_Precision, 
+                                'LF_Recall': self.metric.LF_Recall, 
+                                'UF_Recall': self.metric.UF_Recall})
+            self.metric.reset()
         return all_metrics

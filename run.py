@@ -19,17 +19,16 @@ from allennlp.modules import TextFieldEmbedder, Seq2VecEncoder, Embedding, Seq2S
 from allennlp.modules.text_field_embedders import BasicTextFieldEmbedder
 from allennlp.modules.seq2vec_encoders import StackedAlternatingLstmSeq2VecEncoder
 # from allennlp.nn import util
-# from allennlp.training.metrics import CategoricalAccuracy
 from allennlp.training.trainer import Trainer, GradientDescentTrainer
 from allennlp.training.optimizers import AdamOptimizer
 from allennlp.data.token_indexers import SingleIdTokenIndexer, TokenIndexer, TokenCharactersIndexer
-from allennlp.training.metrics.fbeta_measure import FBetaMeasure
 from allennlp.nn import InitializerApplicator, RegularizerApplicator
 
 from config import config
 
 from transition_sdp_reader import SDPDatasetReader
 from transition_parser_sdp import TransitionParser
+from transition_sdp_metric import MyMetric
 
 def build_trainer(
     model: Model,
@@ -47,7 +46,7 @@ def build_trainer(
                 serialization_dir=serialization_dir,
                 data_loader=train_loader,
                 validation_data_loader=dev_loader,
-                num_epochs=50,
+                num_epochs=500,
                 optimizer=optimizer
             )
     
@@ -91,10 +90,9 @@ def build_model(vocab: Vocabulary) -> Model:
                                         num_layers=2, 
                                         recurrent_dropout_probability=0.33,
                                         use_highway=True)
-    metric = FBetaMeasure()       # TODO 存疑
+    metric = MyMetric()
     action_embedding = Embedding(vocab_namespace='actions', embedding_dim=50, num_embeddings=vocab.get_vocab_size('actions'))
 
-    # TODO 这里应该还缺控制器，但是我还不清楚，在调试过程中慢慢添加
     return TransitionParser(vocab=vocab, 
                             text_field_embedder=text_field_embedder, 
                             word_dim=100,
@@ -134,7 +132,6 @@ def run_training_loop():
 
     train_loader, dev_loader = build_data_loaders(train_set, dev_set)
 
-    # TODO 这里的字典格式非常冗杂，为什么会有3个嵌套的字典，在代码上进行修改的复杂程度还是未知数，看看模型部分怎么调用的。
     # k = next(iter(train_loader))
     # print(next(iter(train_loader))['tokens']['tokens']['tokens'])
 
@@ -147,11 +144,7 @@ def run_training_loop():
         )
         trainer.train()     # 先进入train的forward，紧接着再进入metric，再紧接着进入了dev的forward
 
-    return model, dataset_reader
+    return model, reader
 
 model, dataset_reader = run_training_loop()
 vocab = model.vocab
-
-print()
-
-# from allennlp.commands.train import train_model_from_file
