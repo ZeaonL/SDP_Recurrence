@@ -72,6 +72,7 @@ class Graph(object):
 
     def extract_token_info_from_data(self):
         tokens = [x.label for x in self.nodes]
+        chars = []
         pos_tags = [x.pos_tag for x in self.nodes]
         return {"tokens": tokens,
                 "pos_tags": pos_tags}
@@ -120,6 +121,7 @@ class SDPDatasetReader(DatasetReader):
                  token_indexers: Dict[str, TokenIndexer] = None,
                  action_indexers: Dict[str, TokenIndexer] = None,
                  arc_tag_indexers: Dict[str, TokenIndexer] = None,
+                 characters_indexers : Dict[str, TokenIndexer] = None,
                  lazy: bool = False) -> None:
         super().__init__(lazy)
         self._token_indexers = token_indexers or {'tokens': SingleIdTokenIndexer()}

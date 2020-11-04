@@ -30,26 +30,15 @@ class TransitionParser(Model):
                  layer_dropout_probability: float = 0.0,
                  same_dropout_mask_per_instance: bool = True,
                  input_dropout: float = 0.0,
-                 pos_tag_embedding: Embedding = None,
                  action_embedding: Embedding = None,
-                 pos_tagger_encoder: Seq2SeqEncoder = None,
                  initializer: InitializerApplicator = InitializerApplicator(),
                  regularizer: Optional[RegularizerApplicator] = None
                  ) -> None:
 
         super(TransitionParser, self).__init__(vocab, regularizer)
 
-        self._unlabeled_correct = 0
-        self._labeled_correct = 0
-        self._total_edges_predicted = 0
-        self._total_edges_actual = 0
-        self._exact_unlabeled_correct = 0
-        self._exact_labeled_correct = 0
-        self._total_sentences = 0
-
         self.num_actions = vocab.get_vocab_size('actions')
         self.text_field_embedder = text_field_embedder
-        self.pos_tag_embedding = pos_tag_embedding
         self.metric = metric
 
         self.action_embedding = action_embedding
@@ -71,10 +60,6 @@ class TransitionParser(Model):
         self.pempty_deque_emb = torch.nn.Parameter(torch.randn(hidden_dim))
 
         self._input_dropout = Dropout(input_dropout)
-
-        # self.frame_tagger_encoder = frame_tagger_encoder
-        self.pos_tagger_encoder = pos_tagger_encoder
-        # self.node_label_tagger_encoder = node_label_tagger_encoder
 
         self.buffer = StackRnn(input_size=word_dim,
                                hidden_size=hidden_dim,
@@ -103,21 +88,6 @@ class TransitionParser(Model):
                                      recurrent_dropout_probability=recurrent_dropout_probability,
                                      layer_dropout_probability=layer_dropout_probability,
                                      same_dropout_mask_per_instance=same_dropout_mask_per_instance)
-
-        # self.frame_tagger = SimpleTagger(vocab=vocab,
-        #                                  text_field_embedder=text_field_embedder,
-        #                                  encoder=self.frame_tagger_encoder,
-        #                                  label_namespace='frame')
-
-        # self.pos_tagger = SimpleTagger(vocab=vocab,
-        #                                text_field_embedder=text_field_embedder,
-        #                                encoder=self.pos_tagger_encoder,
-        #                                label_namespace='pos_tag')
-
-        # self.node_label_tagger = SimpleTagger(vocab=vocab,
-        #                                       text_field_embedder=text_field_embedder,
-        #                                       encoder=self.node_label_tagger_encoder,
-        #                                       label_namespace='node_label')
 
         initializer(self)
 
@@ -278,11 +248,7 @@ class TransitionParser(Model):
                 tokens: Dict[str, torch.LongTensor],
                 metadata: List[Dict[str, Any]],
                 gold_actions: Dict[str, torch.LongTensor] = None,
-                # lemmas: Dict[str, torch.LongTensor] = None,
-                # mrp_pos_tags: torch.LongTensor = None,
-                # frame: torch.LongTensor = None,
                 pos_tag: torch.LongTensor = None,
-                # node_label: torch.LongTensor = None,
                 arc_tags: torch.LongTensor = None,
                 ) -> Dict[str, torch.LongTensor]:
 
@@ -305,21 +271,9 @@ class TransitionParser(Model):
                                             sent_len=sent_len,
                                             embedded_text_input=embedded_text_input,
                                             oracle_actions=oracle_actions)
-
-            # frame_tagger_train_outputs = self.frame_tagger(tokens=tokens, tags=frame)
-            # frame_tagger_train_outputs = self.frame_tagger.decode(frame_tagger_train_outputs)
-
-            # pos_tagger_train_outputs = self.pos_tagger(tokens=tokens, tags=pos_tag)
-            # pos_tagger_train_outputs = self.pos_tagger.decode(pos_tagger_train_outputs)
-
-            # node_label_tagger_train_outputs = self.node_label_tagger(tokens=tokens, tags=node_label)
-            # node_label_tagger_train_outputs = self.node_label_tagger.decode(node_label_tagger_train_outputs)
-
+                                            
             _loss = ret_train['loss']       # 3.4848
-            # _loss = ret_train['loss'] + \
-                    # frame_tagger_train_outputs['loss'] + \
-                    # pos_tagger_train_outputs['loss'] + \
-                    # node_label_tagger_train_outputs['loss']
+
             output_dict = {'loss': _loss}   # 训练时候只需要返回loss即可，别的也不需要
             return output_dict
 
@@ -329,23 +283,6 @@ class TransitionParser(Model):
             ret_eval = self._greedy_decode(batch_size=batch_size,
                                            sent_len=sent_len,
                                            embedded_text_input=embedded_text_input)
-            # if frame is not None:
-            #     frame_tagger_eval_outputs = self.frame_tagger(tokens, tags=frame)
-            # else:
-            #     frame_tagger_eval_outputs = self.frame_tagger(tokens)
-            # frame_tagger_eval_outputs = self.frame_tagger.decode(frame_tagger_eval_outputs)
-
-            # if pos_tag is not None:
-            #     pos_tagger_eval_outputs = self.pos_tagger(tokens, tags=pos_tag)
-            # else:
-            #     pos_tagger_eval_outputs = self.pos_tagger(tokens)
-            # pos_tagger_eval_outputs = self.pos_tagger.decode(pos_tagger_eval_outputs)
-
-            # if node_label is not None:
-            #     node_label_tagger_eval_outputs = self.node_label_tagger(tokens, tags=node_label)
-            # else:
-            #     node_label_tagger_eval_outputs = self.node_label_tagger(tokens)
-            # node_label_tagger_eval_outputs = self.node_label_tagger.decode(node_label_tagger_eval_outputs)
 
         self.train(training_mode)
 
@@ -355,45 +292,13 @@ class TransitionParser(Model):
         edge_list = ret_eval['edge_list'] 
 
         _loss = ret_eval['loss']
-        # if 'loss' in frame_tagger_eval_outputs and 'loss' in pos_tagger_eval_outputs:
-        #     _loss = ret_eval['loss'] + \
-        #             frame_tagger_eval_outputs['loss'] + \
-        #             pos_tagger_eval_outputs['loss'] + \
-        #             node_label_tagger_eval_outputs['loss']
-        # else:
-        #     _loss = ret_eval['loss']
 
-        # prediction-mode
         output_dict = {
             'tokens': [d['tokens'] for d in metadata],
             'edge_list': edge_list,
             'meta_info': meta_info,
-            # 'tokens_range': [d['tokens_range'] for d in metadata],
-            # 'frame': frame_tagger_eval_outputs["tags"],
-            # 'pos_tag': pos_tagger_eval_outputs["tags"],
-            # 'node_label': node_label_tagger_eval_outputs["tags"],
             'loss': _loss
         }
-
-        # prediction-mode
-        # compute the mrp accuracy when gold actions exists
-        # if gold_actions is not None:
-        #     gold_mrps = [x["gold_mrps"] for x in metadata]
-        #     predicted_mrps = []
-
-        #     for sent_idx in range(batch_size):
-        #         if len(output_dict['edge_list'][sent_idx]) <= 5 * len(output_dict['tokens'][sent_idx]):
-        #             predicted_mrps.append(sdp_trans_outputs_into_mrp({
-        #                 'tokens': output_dict['tokens'][sent_idx],
-        #                 'edge_list': output_dict['edge_list'][sent_idx],
-        #                 'meta_info': output_dict['meta_info'][sent_idx],
-        #                 'frame': output_dict['frame'][sent_idx],
-        #                 'pos_tag': output_dict['pos_tag'][sent_idx],
-        #                 "node_label": output_dict['node_label'][sent_idx],
-        #                 'tokens_range': output_dict['tokens_range'][sent_idx],
-        #             }))
-
-            # self._mces_metric(predicted_mrps, gold_mrps)
 
         self.metric(edge_list, metadata)
         return output_dict
@@ -405,11 +310,13 @@ class TransitionParser(Model):
                                 'UF': self.metric.UF, 
                                 'n_total': self.metric.n_total,
                                 'n_predict': self.metric.n_predict,
-                                'correct_arcs': self.metric.correct_arcs,
-                                'correct_rels': self.metric.correct_rels,
-                                'LF_Precision': self.metric.LF_Precision, 
-                                'UF_Precision': self.metric.UF_Precision, 
-                                'LF_Recall': self.metric.LF_Recall, 
-                                'UF_Recall': self.metric.UF_Recall})
-            self.metric.reset()
+                                # 'correct_arcs': self.metric.correct_arcs,
+                                # 'correct_rels': self.metric.correct_rels,
+                                # 'LF_Precision': self.metric.LF_Precision, 
+                                # 'UF_Precision': self.metric.UF_Precision, 
+                                # 'LF_Recall': self.metric.LF_Recall, 
+                                # 'UF_Recall': self.metric.UF_Recall
+                                })
+            if reset:
+                self.metric.reset()
         return all_metrics
