@@ -13,7 +13,6 @@
           "type": "single_id",
           "namespace": "tokens",
           "lowercase_tokens": true
-
         },
         "token_characters": {
           "type": "characters",
